@@ -22,7 +22,7 @@ def main():
     args = parser.parse_args()
     
     # Create the model with same dimensions as saved model
-    model = SnakeNet(board_size=32, latent_dim=4096, hidden_dim=2048)
+    model = SnakeNet(board_size=32, latent_dim=1024)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
     

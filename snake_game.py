@@ -33,7 +33,7 @@ class SnakeGame:
     def step(self, action):
         # action: [up, right, down, left]
         if isinstance(action, torch.Tensor):
-            action = action.cpu().numpy()
+            action = action.detach().cpu().numpy()
         
         # Update direction based on action (adjusted for correct matrix coordinates)
         if np.argmax(action) == 0:  # up

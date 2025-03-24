@@ -8,6 +8,7 @@ from snake_game import SnakeGame
 from snake_model import SnakeNet
 import os
 import argparse
+import pygame
 
 class SnakeDataset(Dataset):
     def __init__(self, data):
@@ -91,6 +92,9 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
     criterion = custom_loss
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
+    # Learning rate scheduler that reduces LR on plateau
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+    
     # Create directory for saved models if it doesn't exist
     os.makedirs(save_dir, exist_ok=True)
     
@@ -128,6 +132,9 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
         all_losses.append(avg_loss)
         
         print(f"Epoch {epoch+1}/{num_epochs} completed. Average Loss: {avg_loss:.6f}")
+        
+        # Step the scheduler based on average loss
+        scheduler.step(avg_loss)
         
         # Save model if it's the best so far
         if avg_loss < best_loss:
@@ -184,14 +191,14 @@ def evaluate_model(model, num_games=5, max_steps=1000):
     print("Test Case 1: Empty grid with food -> Place snake")
     empty_grid = torch.zeros((32, 32), device=device)
     empty_grid[16, 16] = 1  # Place food in center
-    prediction = model.predict_next_state(empty_grid, torch.tensor([0, 1, 0, 0], device=device))  # Moving right
+    prediction = model.predict_next_state(empty_grid, torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=device))  # Moving right
     save_grid_image(empty_grid, 'test_results/test1_input.png')
     save_grid_image(prediction, 'test_results/test1_output.png')
     print("Test 1 saved")
     
     print("\nTest Case 2: Snake + input -> Next state")
     initial_state = game.reset()
-    prediction = model.predict_next_state(initial_state, torch.tensor([0, 1, 0, 0], device=device))  # Moving right
+    prediction = model.predict_next_state(initial_state, torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=device))  # Moving right
     save_grid_image(initial_state, 'test_results/test2_input.png')
     save_grid_image(prediction, 'test_results/test2_output.png')
     print("Test 2 saved")
@@ -200,7 +207,7 @@ def evaluate_model(model, num_games=5, max_steps=1000):
     game.length = 3  # Set snake length to 3
     for _ in range(3):  # Move right to grow snake
         state, _ = game.step([0, 1, 0, 0])
-    prediction = model.predict_next_state(state, torch.tensor([0, 1, 0, 0], device=device))  # Moving right
+    prediction = model.predict_next_state(state, torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=device))  # Moving right
     save_grid_image(state, 'test_results/test3_input.png')
     save_grid_image(prediction, 'test_results/test3_output.png')
     print("Test 3 saved")
@@ -228,7 +235,8 @@ def interactive_play(model, max_steps=1000):
     game.render()
     
     # Initialize direction
-    current_direction = torch.zeros(4)
+    device = next(model.parameters()).device
+    current_direction = torch.zeros(4, dtype=torch.float32, device=device)
     current_direction[1] = 1  # Start moving right
     
     step = 0
@@ -249,22 +257,22 @@ def interactive_play(model, max_steps=1000):
                 if event.key == pygame.K_UP:
                     # Ne pas aller vers le haut si on va vers le bas
                     if not (current_direction[2] == 1):
-                        direction = torch.zeros(4)
+                        direction = torch.zeros(4, dtype=torch.float32, device=device)
                         direction[0] = 1
                 elif event.key == pygame.K_RIGHT:
                     # Ne pas aller à droite si on va à gauche
                     if not (current_direction[3] == 1):
-                        direction = torch.zeros(4)
+                        direction = torch.zeros(4, dtype=torch.float32, device=device)
                         direction[1] = 1
                 elif event.key == pygame.K_DOWN:
                     # Ne pas aller vers le bas si on va vers le haut
                     if not (current_direction[0] == 1):
-                        direction = torch.zeros(4)
+                        direction = torch.zeros(4, dtype=torch.float32, device=device)
                         direction[2] = 1
                 elif event.key == pygame.K_LEFT:
                     # Ne pas aller à gauche si on va à droite
                     if not (current_direction[1] == 1):
-                        direction = torch.zeros(4)
+                        direction = torch.zeros(4, dtype=torch.float32, device=device)
                         direction[3] = 1
                 elif event.key == pygame.K_ESCAPE:
                     running = False

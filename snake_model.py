@@ -1,31 +1,30 @@
-import torch
+ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class SelfAttention(nn.Module):
-    def __init__(self, embed_dim):
-        super(SelfAttention, self).__init__()
-        self.query = nn.Linear(embed_dim, embed_dim)
-        self.key = nn.Linear(embed_dim, embed_dim)
-        self.value = nn.Linear(embed_dim, embed_dim)
-        self.scale = torch.sqrt(torch.FloatTensor([embed_dim]))
+class TransformerLayer(nn.Module):
+    def __init__(self, embed_dim, num_heads=8, dropout=0.1):
+        super(TransformerLayer, self).__init__()
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * 4),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(embed_dim * 4, embed_dim),
+            nn.Linear(embed_dim, embed_dim),
+            nn.Dropout(dropout)
+        )
         
     def forward(self, x):
-        # x: [batch_size, sequence_length, embed_dim]
-        batch_size = x.shape[0]
+        # Multi-head attention
+        attended, _ = self.attention(x, x, x)
+        x = self.norm1(x + attended)
         
-        Q = self.query(x)  # [batch_size, sequence_length, embed_dim]
-        K = self.key(x)    # [batch_size, sequence_length, embed_dim]
-        V = self.value(x)  # [batch_size, sequence_length, embed_dim]
-        
-        # Compute attention scores
-        energy = torch.matmul(Q, K.permute(0, 2, 1)) / self.scale.to(x.device)
-        
-        # Get attention weights
-        attention = F.softmax(energy, dim=-1)
-        
-        # Apply attention to values
-        x = torch.matmul(attention, V)
+        # MLP
+        mlp_out = self.mlp(x)
+        x = self.norm2(x + mlp_out)
         
         return x
 
@@ -50,7 +49,7 @@ class CNNEncoder(nn.Module):
         x = F.relu(self.conv3(x))
         x = F.relu(self.conv4(x))
         
-        # Flatten (batch_size, 128, 4, 4) -> (batch_size, 2048) puis projection vers latent_dim (1024)
+        # Flatten
         x = x.reshape(x.size(0), self.flattened_size)
         
         # Project to latent dimension
@@ -82,21 +81,8 @@ class CNNDecoder(nn.Module):
         
         return x
 
-class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, dropout=0.1):
-        super(MLP, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.dropout = nn.Dropout(dropout)
-        self.fc2 = nn.Linear(hidden_dim, output_dim)
-        
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.fc2(x)
-        return x
-
 class SnakeNet(nn.Module):
-    def __init__(self, board_size=32, latent_dim=1024, hidden_dim=512):
+    def __init__(self, board_size=32, latent_dim=1024, num_heads=8):
         super(SnakeNet, self).__init__()
         self.board_size = board_size
         
@@ -109,11 +95,11 @@ class SnakeNet(nn.Module):
         # Combine board encoding and direction
         self.combiner = nn.Linear(latent_dim + 64, latent_dim)
         
-        # Self-attention
-        self.attention = SelfAttention(latent_dim)
-        
-        # MLP
-        self.mlp = MLP(latent_dim, hidden_dim, latent_dim)
+        # 4 Transformer layers
+        self.transformer_layers = nn.ModuleList([
+            TransformerLayer(latent_dim, num_heads=num_heads)
+            for _ in range(4)
+        ])
         
         # CNN Decoder
         self.decoder = CNNDecoder(latent_dim, output_channels=1)
@@ -132,20 +118,19 @@ class SnakeNet(nn.Module):
         combined = torch.cat([board_encoded, dir_encoded], dim=1)
         combined = self.combiner(combined)
         
-        # Add batch dimension for attention (treating each sample as a "sequence" of length 1)
+        # Add sequence dimension for transformer
         combined = combined.unsqueeze(1)
         
-        # Apply self-attention
-        attended = self.attention(combined)
+        # Apply transformer layers
+        x = combined
+        for transformer_layer in self.transformer_layers:
+            x = transformer_layer(x)
         
-        # Remove the "sequence" dimension
-        attended = attended.squeeze(1)
-        
-        # Apply MLP
-        processed = self.mlp(attended)
+        # Remove sequence dimension
+        x = x.squeeze(1)
         
         # Decode to board state
-        output = self.decoder(processed)
+        output = self.decoder(x)
         
         return output
     
@@ -160,6 +145,11 @@ class SnakeNet(nn.Module):
         Returns:
             Predicted next state Tensor of shape [32, 32]
         """
+        # Move input tensors to the same device as the model
+        device = next(self.parameters()).device
+        current_state = current_state.to(device)
+        direction = direction.to(device)
+        
         # Add batch and channel dimensions
         current_state = current_state.unsqueeze(0).unsqueeze(0)
         direction = direction.unsqueeze(0)
@@ -167,6 +157,44 @@ class SnakeNet(nn.Module):
         # Forward pass
         with torch.no_grad():
             next_state = self.forward(current_state, direction)
+            
+            # Threshold the output to ensure valid values
+            # Snake body should be -1, food 1, empty space 0
+            snake_mask = next_state < -0.5
+            food_mask = next_state > 0.5
+            next_state = torch.zeros_like(next_state)
+            
+            # Ensure exactly one food piece exists
+            if food_mask.sum() > 0:
+                # Get the most confident food prediction
+                flat_next_state = next_state.reshape(-1)
+                max_food_idx = torch.argmax(flat_next_state)
+                food_mask = torch.zeros_like(flat_next_state)
+                food_mask[max_food_idx] = 1
+                food_mask = food_mask.reshape(next_state.shape)
+                next_state[food_mask == 1] = 1
+            
+            # Ensure snake exists and is a single connected component
+            if snake_mask.sum() > 0:
+                # Get top snake positions (most negative values)
+                flat_state = next_state.reshape(-1)
+                snake_length = min(int(snake_mask.sum()), 5)  # Limit snake length
+                try:
+                    snake_indices = torch.topk(-flat_state, k=snake_length).indices
+                    snake_mask = torch.zeros_like(flat_state)
+                    snake_mask[snake_indices] = 1
+                    snake_mask = snake_mask.reshape(next_state.shape)
+                    next_state[snake_mask == 1] = -1
+                except RuntimeError:
+                    # If topk fails, ensure at least one snake cell exists
+                    min_idx = torch.argmin(flat_state)
+                    snake_mask = torch.zeros_like(flat_state)
+                    snake_mask[min_idx] = 1
+                    snake_mask = snake_mask.reshape(next_state.shape)
+                    next_state[snake_mask == 1] = -1
+            
+            # Move result back to CPU
+            next_state = next_state.cpu()
         
         # Remove batch and channel dimensions
         next_state = next_state.squeeze(0).squeeze(0)
