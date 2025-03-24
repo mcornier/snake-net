@@ -137,9 +137,14 @@ def main():
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model.to(device)
         
-        print(f"Generating dataset with {args.episodes} episodes...")
-        dataset = generate_dataset(num_episodes=args.episodes, max_steps=args.steps)
-        print(f"Dataset size: {len(dataset)} samples")
+        print("Loading existing datasets...")
+        dataset = []
+        for file in os.listdir('datasets'):
+            if file.endswith('.pt'):
+                print(f"Loading {file}...")
+                data = torch.load(f'datasets/{file}')
+                dataset.extend(data)
+        print(f"Total dataset size: {len(dataset)} samples")
         
         print(f"Training model for {args.epochs} epochs...")
         train(model, dataset, num_epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.lr)

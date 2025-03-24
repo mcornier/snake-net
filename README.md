@@ -6,10 +6,10 @@ Un projet de réseau neuronal qui apprend à générer un jeu de Snake. Le modè
 
 L'architecture du projet est la suivante :
 
-- **CNN Encodeur** : Transforme la matrice 64×64 du jeu en une représentation latente de dimension 4096
+- **CNN Encodeur** : Transforme la matrice 32×32 du jeu en une représentation latente de dimension 1024
 - **Module d'Attention** : Intègre la représentation latente avec les 4 valeurs directionnelles (haut, droite, bas, gauche)
 - **MLP** : Traite la sortie de l'attention et transforme la représentation
-- **CNN Décodeur** : Retransforme le vecteur latent en une matrice 64×64 représentant le nouvel état du jeu
+- **CNN Décodeur** : Retransforme le vecteur latent en une matrice 32×32 représentant le nouvel état du jeu
 
 ## Prérequis
 
@@ -73,7 +73,7 @@ options:
   -h, --help            show this help message and exit
   --mode {play,train,simulate,interactive}
                         Mode to run: play (human controls), train (train model), simulate (model plays), interactive (human + model)
-  --size SIZE           Size of the game board (default: 64x64)
+  --size SIZE           Size of the game board (default: 32*32)
   --episodes EPISODES   Number of episodes for training (default: 100)
   --steps STEPS         Maximum steps per episode (default: 500)
   --epochs EPOCHS       Number of training epochs (default: 50)
@@ -93,7 +93,7 @@ options:
 ## Architecture détaillée
 
 ```
-64×64 (état du jeu) → CNN Encodeur → [4096] latent → 
+32*32 (état du jeu) → CNN Encodeur → [4096] latent → 
                                               ↓
                       [4] (direction) → Embedding → [64]
                                               ↓
@@ -101,7 +101,7 @@ options:
                                               ↓
                                             MLP
                                               ↓
-                                     CNN Décodeur → 64×64 (nouvel état)
+                                     CNN Décodeur → 32*32 (nouvel état)
 ```
 
 ## Représentation du jeu

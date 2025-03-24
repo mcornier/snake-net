@@ -69,8 +69,26 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
     # Create data loader
     train_loader = DataLoader(SnakeDataset(dataset), batch_size=batch_size, shuffle=True)
     
+    # Custom loss function that emphasizes larger errors
+    def custom_loss(output, target):
+        # Calculate absolute difference and clamp to prevent NaN
+        epsilon = 1e-6  # small constant to prevent division by zero
+        diff = torch.abs(output - target)
+        diff = torch.clamp(diff, min=epsilon, max=10.0)  # limit max error to prevent explosion
+        
+        # Apply custom transformation element-wise:
+        # - Pour diff < 1 : diff^0.7 pour amplifier (moins agressif que sqrt)
+        # - Pour diff >= 1 : diff pour ne pas réduire
+        small_errors = diff < 1
+        transformed_diff = torch.zeros_like(diff)
+        transformed_diff[small_errors] = diff[small_errors] ** 0.7  # less aggressive amplification
+        transformed_diff[~small_errors] = diff[~small_errors]
+        
+        # Average over all elements
+        return transformed_diff.mean()
+    
     # Loss function and optimizer
-    criterion = nn.MSELoss()
+    criterion = custom_loss
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
     # Create directory for saved models if it doesn't exist

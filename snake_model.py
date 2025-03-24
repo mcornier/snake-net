@@ -32,13 +32,17 @@ class SelfAttention(nn.Module):
 class CNNEncoder(nn.Module):
     def __init__(self, input_channels=1, latent_dim=1024):
         super(CNNEncoder, self).__init__()
-        self.conv1 = nn.Conv2d(input_channels, 16, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)  # 16x16
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)  # 8x8
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1) # 4x4
+        # Input: 64x64
+        self.conv1 = nn.Conv2d(input_channels, 16, kernel_size=3, stride=2, padding=1)   # 32x32
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)    # 16x16
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)    # 8x8
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)   # 4x4
+        self.conv5 = nn.Conv2d(128, 256, kernel_size=2, stride=2, padding=0)  # 2x2
         
+        # Calculate flattened size (2x2x256 = 1024)
+        self.flattened_size = 2 * 2 * 256
         # Final linear layer to get to the latent dimension
-        self.fc = nn.Linear(4 * 4 * 128, latent_dim)
+        self.fc = nn.Linear(self.flattened_size, latent_dim)
         
     def forward(self, x):
         # x: [batch_size, channels, height, width]
@@ -48,8 +52,8 @@ class CNNEncoder(nn.Module):
         x = F.relu(self.conv4(x))
         x = F.relu(self.conv5(x))
         
-        # Flatten
-        x = x.view(x.size(0), -1)
+        # Flatten (batch_size, 128, 4, 4) -> (batch_size, 2048) puis projection vers latent_dim (1024)
+        x = x.reshape(x.size(0), self.flattened_size)
         
         # Project to latent dimension
         x = self.fc(x)
@@ -59,23 +63,26 @@ class CNNEncoder(nn.Module):
 class CNNDecoder(nn.Module):
     def __init__(self, latent_dim=1024, output_channels=1):
         super(CNNDecoder, self).__init__()
-        self.fc = nn.Linear(latent_dim, 4 * 4 * 128)
+        # Start from 2x2x256 to match encoder
+        self.fc = nn.Linear(latent_dim, 2 * 2 * 256)
         
-        self.deconv1 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)  # 8x8
-        self.deconv2 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)   # 16x16
-        self.deconv3 = nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1)   # 32x32
-        self.deconv4 = nn.ConvTranspose2d(16, output_channels, kernel_size=3, stride=1, padding=1)
+        self.deconv1 = nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1)  # 4x4
+        self.deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)   # 8x8
+        self.deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)    # 16x16
+        self.deconv4 = nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1)    # 32x32
+        self.deconv5 = nn.ConvTranspose2d(16, output_channels, kernel_size=4, stride=2, padding=1)  # 64x64
         
     def forward(self, x):
         # Project and reshape
         x = self.fc(x)
-        x = x.view(x.size(0), 256, 4, 4)
+        x = x.view(x.size(0), 256, 2, 2)  # Match encoder's final shape
         
         # Deconvolution layers
-        x = F.relu(self.deconv1(x))
-        x = F.relu(self.deconv2(x))
-        x = F.relu(self.deconv3(x))
-        x = self.deconv4(x)
+        x = F.relu(self.deconv1(x))  # 4x4
+        x = F.relu(self.deconv2(x))  # 8x8
+        x = F.relu(self.deconv3(x))  # 16x16
+        x = F.relu(self.deconv4(x))  # 32x32
+        x = self.deconv5(x)          # 64x64
         
         return x
 
