@@ -26,7 +26,7 @@ class SnakeDataset(Dataset):
         return state, action, next_state
 
 def generate_dataset(num_episodes=100, max_steps=1000, mode='auto'):
-    game = SnakeGame(size=64)
+    game = SnakeGame(size=32)
     dataset = game.generate_dataset(num_episodes, max_steps, mode)
     game.close()
     return dataset
@@ -151,22 +151,66 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
     
     return all_losses
 
+def save_grid_image(grid, filename):
+    """Save a grid as a grayscale image with exact pixel size"""
+    # Convert to numpy array and scale to 0-255 range
+    # -1 (snake) -> 0 (black)
+    # 0 (empty) -> 128 (gray)
+    # 1 (food) -> 255 (white)
+    # intermediate values for trail are scaled accordingly
+    img = ((grid.numpy() + 1) * 127.5).astype(np.uint8)
+    
+    # Save as PNG with exact 32x32 pixel size (no interpolation)
+    plt.figure(figsize=(1, 1), dpi=32)  # Force exact 32x32 pixels
+    plt.imshow(img, cmap='gray', interpolation='none')
+    plt.axis('off')
+    plt.margins(0, 0)
+    plt.savefig(filename, dpi=32, bbox_inches='tight', pad_inches=0)
+    plt.close()
+
 def evaluate_model(model, num_games=5, max_steps=1000):
     """
     Evaluate the trained model by having it play complete games and visualizing the results.
+    Additionally generate test cases for specific scenarios.
     """
-    game = SnakeGame(size=64)
+    game = SnakeGame(size=32)
+    device = next(model.parameters()).device
     
+    # Create test directory if it doesn't exist
+    os.makedirs('test_results', exist_ok=True)
+
+    print("\nGenerating test cases...")
+    
+    print("Test Case 1: Empty grid with food -> Place snake")
+    empty_grid = torch.zeros((32, 32), device=device)
+    empty_grid[16, 16] = 1  # Place food in center
+    prediction = model.predict_next_state(empty_grid, torch.tensor([0, 1, 0, 0], device=device))  # Moving right
+    save_grid_image(empty_grid, 'test_results/test1_input.png')
+    save_grid_image(prediction, 'test_results/test1_output.png')
+    print("Test 1 saved")
+    
+    print("\nTest Case 2: Snake + input -> Next state")
+    initial_state = game.reset()
+    prediction = model.predict_next_state(initial_state, torch.tensor([0, 1, 0, 0], device=device))  # Moving right
+    save_grid_image(initial_state, 'test_results/test2_input.png')
+    save_grid_image(prediction, 'test_results/test2_output.png')
+    print("Test 2 saved")
+    
+    print("\nTest Case 3: Long snake -> Next state")
+    game.length = 3  # Set snake length to 3
+    for _ in range(3):  # Move right to grow snake
+        state, _ = game.step([0, 1, 0, 0])
+    prediction = model.predict_next_state(state, torch.tensor([0, 1, 0, 0], device=device))  # Moving right
+    save_grid_image(state, 'test_results/test3_input.png')
+    save_grid_image(prediction, 'test_results/test3_output.png')
+    print("Test 3 saved")
+    print("\nAll test cases saved in test_results/")
+    
+    # Regular game evaluation
     for game_idx in range(num_games):
-        # Initialize a new game
         initial_state = game.reset()
-        
-        # Let the model play the game
         game_states = model.play_game(initial_state, max_steps)
-        
-        # Visualize and save the game progression
         save_sample_game_states(game_states, f'game_{game_idx+1}_visualization.png')
-        
         print(f"Game {game_idx+1}: Completed {len(game_states)} steps")
     
     game.close()
@@ -176,7 +220,7 @@ def interactive_play(model, max_steps=1000):
     Interactive play mode where a pre-trained model generates the next state 
     based on human input.
     """
-    game = SnakeGame(size=64)
+    game = SnakeGame(size=32)
     initial_state = game.reset()
     current_state = initial_state
     
@@ -269,8 +313,8 @@ def main():
     
     args = parser.parse_args()
     
-    # Create the model
-    model = SnakeNet(board_size=64, latent_dim=4096, hidden_dim=2048)
+    # Create the model (board_size 32 => latent_dim 1024, hidden_dim 512)
+    model = SnakeNet(board_size=32, latent_dim=1024, hidden_dim=512)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
     
