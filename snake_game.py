@@ -142,18 +142,34 @@ class SnakeGame:
     def close(self):
         pygame.quit()
 
-    def generate_dataset(self, num_episodes=100, max_steps=1000, mode='auto'):
+    def generate_dataset(self, num_episodes=100, max_steps=1000, mode='auto', max_samples=50000):
         dataset = []
+        running = True
+        episode = 0
         
-        for episode in range(num_episodes):
+        clock = pygame.time.Clock()
+        
+        while running and episode < num_episodes:
+            # Vider la queue d'événements
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                    break
+            
             state = self.reset()
             current_direction = np.array([0, 1, 0, 0])  # Start moving right
+            steps = 0
             
-            for step in range(max_steps):
+            while steps < max_steps and running:
+                # Vérifier les événements pygame
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        running = False
+                        break
                 if mode == 'auto':
                     # Simple automatic movement pattern (circles or back-and-forth)
                     action = np.zeros(4)
-                    time_step = step % 16
+                    time_step = steps % 16
                     if time_step < 4:
                         action[1] = 1  # right
                     elif time_step < 8:
@@ -224,7 +240,9 @@ class SnakeGame:
                                 action[3] = 1
                 
                 next_state, done = self.step(action)
-                dataset.append((state, torch.FloatTensor(action), next_state))
+                # Limiter la taille du dataset
+                if len(dataset) < max_samples:
+                    dataset.append((state, torch.FloatTensor(action), next_state))
                 
                 state = next_state
                 self.render()
@@ -232,6 +250,17 @@ class SnakeGame:
                 if done:
                     break
                 
-                pygame.time.wait(100)  # Slow down for visualization
+                # Control speed based on mode
+                if mode == 'auto' or mode == 'random' or mode == 'search':
+                    clock.tick(200)  # Fast for automatic generation (200 FPS)
+                else:
+                    clock.tick(10)  # Slower for human visualization (10 FPS)
+                
+                steps += 1
+            
+            episode += 1
+            if len(dataset) >= max_samples:
+                print(f"Dataset size limit reached ({max_samples} samples)")
+                break
         
         return dataset
