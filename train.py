@@ -37,16 +37,11 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
     # Custom loss function that emphasizes larger errors
     def custom_loss(output, target):
         diff = output - target
-        diff = torch.clamp(diff, min=-10.0, max=10.0)
-        abs_diff = torch.abs(diff)
-
-        transformed_diff = torch.zeros_like(abs_diff)
-
-        small_errors = abs_diff < 1
-        transformed_diff[small_errors] = torch.sinh(abs_diff[small_errors])  # smoother than power
-        transformed_diff[~small_errors] = abs_diff[~small_errors]  # identity for big errors
-
-        return transformed_diff.mean()
+        small_errors = torch.abs(diff) < 1
+        transformed_diff = torch.zeros_like(diff)
+        transformed_diff[small_errors] = diff[small_errors] * torch.abs(diff[small_errors]) ** -0.3  # amplify small errors with sign
+        transformed_diff[~small_errors] = diff[~small_errors]
+        return transformed_diff.pow(2).mean()
     
     # Initialize visualizer for training monitoring
     visualizer = SnakeVisualizer()
