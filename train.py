@@ -6,8 +6,14 @@ from snake_game import SnakeGame
 from visualization import SnakeVisualizer
 
 class SnakeDataset(Dataset):
-    def __init__(self, data):
-        self.data = data
+    def __init__(self, data, device=None):
+        self.device = device
+        # Move data to specified device if provided
+        if device is not None:
+            self.data = [(state.to(device), action.to(device), next_state.to(device)) 
+                        for state, action, next_state in data]
+        else:
+            self.data = data
         
     def __len__(self):
         return len(self.data)
@@ -27,21 +33,42 @@ def generate_dataset(num_episodes=100, max_steps=1000, mode='auto'):
     game.close()
     return dataset
 
-def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, save_dir='models'):
+def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, save_dir='models', device=None):
     """
     Train the SnakeNet model using the provided dataset.
-    """
-    # Create data loader
-    train_loader = DataLoader(SnakeDataset(dataset), batch_size=batch_size, shuffle=True)
     
-    # Custom loss function that emphasizes larger errors
+    Args:
+        model: The SnakeNet model to train
+        dataset: Training dataset
+        num_epochs: Number of epochs to train for
+        batch_size: Batch size for training
+        learning_rate: Learning rate for optimizer
+        save_dir: Directory to save model checkpoints
+        device: Device to train on (cpu or cuda). If None, uses model's current device.
+    """
+    if device is None:
+        device = next(model.parameters()).device
+    # Create data loader with data on correct device
+    train_dataset = SnakeDataset(dataset, device=device)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    
+    # Custom loss function that emphasizes larger errors - ensure it's on correct device
     def custom_loss(output, target):
         diff = output - target
-        small_errors = torch.abs(diff) < 1
-        transformed_diff = torch.zeros_like(diff)
-        transformed_diff[small_errors] = diff[small_errors] * torch.abs(diff[small_errors]) ** -0.3  # amplify small errors with sign
-        transformed_diff[~small_errors] = diff[~small_errors]
-        return transformed_diff.pow(2).mean()
+        # Add epsilon to avoid division by zero
+        epsilon = 1e-6
+        # Use smooth L1 loss for stability
+        abs_diff = torch.abs(diff)
+        quadratic = 0.5 * diff ** 2
+        linear = abs_diff - 0.5
+        
+        # Apply custom scaling for small errors (using stable operations)
+        small_errors = abs_diff < 1
+        loss = torch.where(small_errors, 
+                          quadratic * (torch.clamp(abs_diff + epsilon, min=epsilon) ** -0.3),
+                          linear)
+        
+        return loss.mean()
     
     # Initialize visualizer for training monitoring
     visualizer = SnakeVisualizer()
@@ -65,11 +92,9 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
         epoch_states = []  # Store some states for visualization
         
         for batch_idx, (state, action, target) in enumerate(train_loader):
-            # Move data to device
-            device = next(model.parameters()).device
-            state = state.to(device)
-            action = action.to(device)
-            target = target.to(device)
+            # Data is already on device from dataset initialization
+            # Just ensure model is on correct device
+            model = model.to(device)
             
             # Forward pass
             output = model(state, action)
@@ -100,13 +125,15 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
                 )
             
             if batch_idx % 10 == 0:
-                print(f"Epoch {epoch+1}/{num_epochs}, Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.6f}")
+                current_lr = optimizer.param_groups[0]['lr']
+                print(f"Epoch {epoch+1}/{num_epochs}, Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.6f}, LR: {current_lr:.6f}")
         
         # Average loss for the epoch
         avg_loss = epoch_loss / len(train_loader)
         all_losses.append(avg_loss)
         
-        print(f"Epoch {epoch+1}/{num_epochs} completed. Average Loss: {avg_loss:.6f}")
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"Epoch {epoch+1}/{num_epochs} completed. Average Loss: {avg_loss:.6f}, LR: {current_lr:.6f}")
         
         # Step the scheduler based on average loss
         scheduler.step(avg_loss)
@@ -114,7 +141,9 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
         # Save model if it's the best so far
         if avg_loss < best_loss:
             best_loss = avg_loss
-            torch.save(model.state_dict(), os.path.join(save_dir, 'snake_model_best.pt'))
+            # Save model state
+            model_state = model.state_dict()
+            torch.save(model_state, os.path.join(save_dir, 'snake_model_best.pt'))
         
         # Save training curve at each epoch
         visualizer.save_training_curve(all_losses, 'training_curve.png')
@@ -122,14 +151,18 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
         # Periodically save checkpoints
         if (epoch + 1) % 5 == 0:
             # Save checkpoint
-            torch.save({
+            # Save checkpoint with device-agnostic state
+            checkpoint = {
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
-            }, os.path.join(save_dir, f'snake_model_checkpoint_epoch_{epoch+1}.pt'))
+                'device': str(device)
+            }
+            torch.save(checkpoint, os.path.join(save_dir, f'snake_model_checkpoint_epoch_{epoch+1}.pt'))
     
     # Save final model
+    # Save final model state
     torch.save(model.state_dict(), os.path.join(save_dir, 'snake_model_final.pt'))
     
     return all_losses

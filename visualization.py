@@ -46,11 +46,11 @@ class SnakeVisualizer:
             filename: Name of the file to save
         """
         plt.figure(figsize=(10, 5))
-        plt.plot(losses)
-        plt.title('Training Loss')
+        plt.semilogy(losses)  # Use logarithmic scale for y-axis
+        plt.title('Training Loss (log scale)')
         plt.xlabel('Iteration')
-        plt.ylabel('Loss')
-        plt.grid(True)
+        plt.ylabel('Loss (log)')
+        plt.grid(True, which="both", ls="-")
         plt.savefig(os.path.join(self.save_dir, filename))
         plt.close()
 

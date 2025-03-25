@@ -18,8 +18,12 @@ class TransformerLayer(nn.Module):
         )
         
     def forward(self, x):
-        # Multi-head attention
-        attended, _ = self.attention(x, x, x)
+        # Ensure input is on the same device as the model
+        device = next(self.parameters()).device
+        x = x.to(device)
+        
+        # Multi-head attention - explicitly move all inputs to device
+        attended, _ = self.attention(x.to(device), x.to(device), x.to(device))
         x = self.norm1(x + attended)
         
         # MLP
@@ -43,6 +47,10 @@ class CNNEncoder(nn.Module):
         self.fc = nn.Linear(self.flattened_size, latent_dim)
         
     def forward(self, x):
+        # Ensure input is on the same device as the model
+        device = next(self.parameters()).device
+        x = x.to(device)
+        
         # x: [batch_size, channels, height, width]
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
@@ -69,6 +77,10 @@ class CNNDecoder(nn.Module):
         self.deconv4 = nn.ConvTranspose2d(32, output_channels, kernel_size=4, stride=2, padding=1)  # 32x32
         
     def forward(self, x):
+        # Ensure input is on the same device as the model
+        device = next(self.parameters()).device
+        x = x.to(device)
+        
         # Project and reshape
         x = self.fc(x)
         x = x.view(x.size(0), 256, 2, 2)  # Match encoder's final shape
@@ -105,6 +117,11 @@ class SnakeNet(nn.Module):
         self.decoder = CNNDecoder(latent_dim, output_channels=1)
         
     def forward(self, board, direction):
+        # Ensure inputs are on the same device as the model
+        device = next(self.parameters()).device
+        board = board.to(device)
+        direction = direction.to(device)
+        
         # board: [batch_size, 1, height, width]
         # direction: [batch_size, 4]
         
@@ -134,32 +151,32 @@ class SnakeNet(nn.Module):
         
         return output
     
-    def predict_next_state(self, current_state, direction):
+    def predict_next_state(self, current_state, direction, device=None):
         """
         Predicts the next state given the current state and direction.
         
         Args:
             current_state: Tensor of shape [32, 32] representing the current board
             direction: Tensor of shape [4] representing the direction
+            device: Optional device to use for prediction. If None, uses the model's device.
             
         Returns:
             Predicted next state Tensor of shape [32, 32]
         """
-        # Move input tensors to the same device as the model
-        device = next(self.parameters()).device
-        current_state = current_state.to(device)
-        direction = direction.to(device)
+        if device is None:
+            device = next(self.parameters()).device
         
-        # Add batch and channel dimensions
-        current_state = current_state.unsqueeze(0).unsqueeze(0)
-        direction = direction.unsqueeze(0)
+        # Ensure model is on the correct device
+        self.to(device)
+        
+        # Move input tensors to device and add dimensions
+        current_state = current_state.to(device).unsqueeze(0).unsqueeze(0)
+        direction = direction.to(device).unsqueeze(0)
         
         # Forward pass
         with torch.no_grad():
             next_state = self.forward(current_state, direction)
-            next_state = next_state.cpu()
-            
-        # Remove batch and channel dimensions
-        next_state = next_state.squeeze(0).squeeze(0)
+            # Move result back to CPU for compatibility
+            next_state = next_state.cpu().squeeze(0).squeeze(0)
         
         return next_state
