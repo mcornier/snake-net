@@ -1,4 +1,4 @@
- import torch
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -82,7 +82,7 @@ class CNNDecoder(nn.Module):
         return x
 
 class SnakeNet(nn.Module):
-    def __init__(self, board_size=32, latent_dim=1024, num_heads=8):
+    def __init__(self, board_size=32, latent_dim=1024, hidden_dim=512, num_heads=8):
         super(SnakeNet, self).__init__()
         self.board_size = board_size
         
@@ -157,100 +157,9 @@ class SnakeNet(nn.Module):
         # Forward pass
         with torch.no_grad():
             next_state = self.forward(current_state, direction)
-            
-            # Threshold the output to ensure valid values
-            # Snake body should be -1, food 1, empty space 0
-            snake_mask = next_state < -0.5
-            food_mask = next_state > 0.5
-            next_state = torch.zeros_like(next_state)
-            
-            # Ensure exactly one food piece exists
-            if food_mask.sum() > 0:
-                # Get the most confident food prediction
-                flat_next_state = next_state.reshape(-1)
-                max_food_idx = torch.argmax(flat_next_state)
-                food_mask = torch.zeros_like(flat_next_state)
-                food_mask[max_food_idx] = 1
-                food_mask = food_mask.reshape(next_state.shape)
-                next_state[food_mask == 1] = 1
-            
-            # Ensure snake exists and is a single connected component
-            if snake_mask.sum() > 0:
-                # Get top snake positions (most negative values)
-                flat_state = next_state.reshape(-1)
-                snake_length = min(int(snake_mask.sum()), 5)  # Limit snake length
-                try:
-                    snake_indices = torch.topk(-flat_state, k=snake_length).indices
-                    snake_mask = torch.zeros_like(flat_state)
-                    snake_mask[snake_indices] = 1
-                    snake_mask = snake_mask.reshape(next_state.shape)
-                    next_state[snake_mask == 1] = -1
-                except RuntimeError:
-                    # If topk fails, ensure at least one snake cell exists
-                    min_idx = torch.argmin(flat_state)
-                    snake_mask = torch.zeros_like(flat_state)
-                    snake_mask[min_idx] = 1
-                    snake_mask = snake_mask.reshape(next_state.shape)
-                    next_state[snake_mask == 1] = -1
-            
-            # Move result back to CPU
             next_state = next_state.cpu()
-        
+            
         # Remove batch and channel dimensions
         next_state = next_state.squeeze(0).squeeze(0)
         
         return next_state
-    
-    def play_game(self, initial_state, max_steps=1000):
-        """
-        Auto-plays the game by recursively predicting the next state.
-        
-        Args:
-            initial_state: Tensor of shape [64, 64] representing the initial board
-            max_steps: Maximum number of steps to simulate
-            
-        Returns:
-            List of game states
-        """
-        states = [initial_state]
-        current_state = initial_state
-        
-        for _ in range(max_steps):
-            # Simple policy: go in the direction where there's food
-            snake_pos = (current_state == -1).nonzero()
-            head_pos = snake_pos[0]  # First snake block is the head
-            
-            food_pos = (current_state == 1).nonzero()
-            if len(food_pos) == 0:
-                break  # No food found, end game
-                
-            food_pos = food_pos[0]
-            
-            # Calculate direction vector to food
-            direction_vector = food_pos - head_pos
-            
-            # Determine direction (up, right, down, left)
-            direction = torch.zeros(4)
-            if torch.abs(direction_vector[0]) > torch.abs(direction_vector[1]):
-                # Move horizontally
-                if direction_vector[0] > 0:
-                    direction[1] = 1  # right
-                else:
-                    direction[3] = 1  # left
-            else:
-                # Move vertically
-                if direction_vector[1] > 0:
-                    direction[2] = 1  # down
-                else:
-                    direction[0] = 1  # up
-            
-            # Predict next state
-            next_state = self.predict_next_state(current_state, direction)
-            states.append(next_state)
-            current_state = next_state
-            
-            # Check for game over (no snake or no movement)
-            if torch.sum(current_state == -1) == 0 or torch.equal(current_state, states[-2]):
-                break
-                
-        return states

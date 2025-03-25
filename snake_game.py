@@ -9,7 +9,7 @@ class SnakeGame:
         
         # Pygame initialization for visualization
         pygame.init()
-        self.screen_size = 256  # 4 pixels per cell
+        self.screen_size = 256  # 8 pixels per cell with a 32x32 grid
         self.screen = pygame.display.set_mode((self.screen_size, self.screen_size))
         pygame.display.set_caption('Snake Game')
         
@@ -53,15 +53,11 @@ class SnakeGame:
         if (new_head[0] < 0 or new_head[0] >= self.size or
             new_head[1] < 0 or new_head[1] >= self.size):
             self.game_over = True
-            # Marquer game over avec des transitions
-            self._mark_game_over()
             return self.get_state(), True
         
         # Check for collision with self
         if self.board[new_head] == -1:
             self.game_over = True
-            # Marquer game over avec des transitions
-            self._mark_game_over()
             return self.get_state(), True
         
         # Check if food was eaten
@@ -92,22 +88,6 @@ class SnakeGame:
         
         return self.get_state(), False
     
-    def _mark_game_over(self):
-        """Marque le game over en modifiant la matrice avec des transitions de couleur"""
-        # Transition 1: tout en blanc (1)
-        self.board.fill(1)
-        self.render()
-        pygame.time.wait(200)
-        
-        # Transition 2: tout en noir (-1)
-        self.board.fill(-1)
-        self.render()
-        pygame.time.wait(200)
-        
-        # Transition 3: retour à zéro
-        self.board.fill(0)
-        self.render()
-    
     def get_state(self):
         return torch.FloatTensor(self.board)
     
@@ -133,8 +113,8 @@ class SnakeGame:
                     gray_val = max(0, min(255, gray_val))  # Clamp entre 0 et 255
                     color = (gray_val, gray_val, gray_val)
                 
-                # Draw 4x4 pixel block
-                rect = pygame.Rect(j * 4, i * 4, 4, 4)
+                # Draw 8x8 pixel block
+                rect = pygame.Rect(j * 8, i * 8, 8, 8)
                 pygame.draw.rect(self.screen, color, rect)
         
         pygame.display.flip()
