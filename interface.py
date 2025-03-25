@@ -110,6 +110,12 @@ class SnakeInterface:
                     elif event.key == pygame.K_ESCAPE:
                         running = False
                         break
+                    elif event.key == pygame.K_SPACE:
+                        # Reset snake position to center when space is pressed
+                        state = torch.zeros((32, 32))
+                        state[12, 16] = -1  # Place snake head at center
+                        state[12, 15] = -1  # Place snake body
+                        state[12, 14] = -1  # Place snake body
             
             if direction is None:
                 direction = current_direction
