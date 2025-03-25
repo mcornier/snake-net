@@ -38,8 +38,15 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
     def custom_loss(output, target):
         diff = output - target
         diff = torch.clamp(diff, min=-10.0, max=10.0)
-        transformed_diff = torch.sinh(torch.abs(diff))  # always >= 0
-        return transformed_diff.sum() / output.size(0)  # Normalize per sample
+        abs_diff = torch.abs(diff)
+
+        transformed_diff = torch.zeros_like(abs_diff)
+
+        small_errors = abs_diff < 1
+        transformed_diff[small_errors] = torch.sinh(abs_diff[small_errors])  # smoother than power
+        transformed_diff[~small_errors] = abs_diff[~small_errors]  # identity for big errors
+
+        return transformed_diff.mean()
     
     # Initialize visualizer for training monitoring
     visualizer = SnakeVisualizer()
