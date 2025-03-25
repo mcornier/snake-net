@@ -36,21 +36,10 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
     
     # Custom loss function that emphasizes larger errors
     def custom_loss(output, target):
-        # Calculate absolute difference and clamp to prevent NaN
-        epsilon = 1e-6  # small constant to prevent division by zero
-        diff = torch.abs(output - target)
-        diff = torch.clamp(diff, min=epsilon, max=10.0)  # limit max error to prevent explosion
-        
-        # Apply custom transformation element-wise:
-        # - Pour diff < 1 : diff^0.7 pour amplifier (moins agressif que sqrt)
-        # - Pour diff >= 1 : diff pour ne pas réduire
-        small_errors = diff < 1
-        transformed_diff = torch.zeros_like(diff)
-        transformed_diff[small_errors] = diff[small_errors] ** 0.7  # less aggressive amplification
-        transformed_diff[~small_errors] = diff[~small_errors]
-        
-        # Average over all elements
-        return transformed_diff.mean()
+        diff = output - target
+        diff = torch.clamp(diff, min=-10.0, max=10.0)
+        transformed_diff = torch.sinh(torch.abs(diff))  # always >= 0
+        return transformed_diff.sum() / output.size(0)  # Normalize per sample
     
     # Initialize visualizer for training monitoring
     visualizer = SnakeVisualizer()
@@ -125,7 +114,10 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
             best_loss = avg_loss
             torch.save(model.state_dict(), os.path.join(save_dir, 'snake_model_best.pt'))
         
-        # Periodically save checkpoints and visualizations
+        # Save training curve at each epoch
+        visualizer.save_training_curve(all_losses, 'training_curve.png')
+        
+        # Periodically save checkpoints
         if (epoch + 1) % 5 == 0:
             # Save checkpoint
             torch.save({
@@ -134,10 +126,8 @@ def train(model, dataset, num_epochs=50, batch_size=32, learning_rate=0.001, sav
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
             }, os.path.join(save_dir, f'snake_model_checkpoint_epoch_{epoch+1}.pt'))
-            
     
-    # Save final model and training curve
+    # Save final model
     torch.save(model.state_dict(), os.path.join(save_dir, 'snake_model_final.pt'))
-    visualizer.save_training_curve(all_losses, 'training_curve.png')
     
     return all_losses
