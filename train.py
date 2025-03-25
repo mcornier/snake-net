@@ -256,43 +256,42 @@ def train_rl(model, num_episodes=1000, max_steps=1000, learning_rate=0.00005, sa
             game.render()  # Render game state
             
             # Get model prediction
-            model.eval()
-            with torch.no_grad():
-                state_tensor = state.clone().to(device).unsqueeze(0).unsqueeze(0)
-                action_tensor = torch.FloatTensor(action).to(device).unsqueeze(0)
-                prediction = model(state_tensor, action_tensor)
-                
-                # Render model prediction
-                pred_array = prediction.squeeze().cpu().numpy()
-                model_screen.fill((128, 128, 128))
-                
-                for i in range(32):
-                    for j in range(32):
-                        val = pred_array[i, j]
-                        if val <= -0.8:  # Snake body
-                            color = (0, 0, 0)
-                        elif val >= 0.8:  # Food
-                            color = (255, 255, 255)
-                        elif val < 0:  # Trail
-                            gray_val = int(128 + val * 128)
-                            gray_val = max(0, min(255, gray_val))
-                            color = (gray_val, gray_val, gray_val)
-                        else:
-                            continue
-                        
-                        rect = pygame.Rect(j * 8, i * 8, 8, 8)
-                        pygame.draw.rect(model_screen, color, rect)
-                
-                pygame.display.flip()
-            
-            # Train model
-            model.train()
-            optimizer.zero_grad()
+            model.train()  # Ensure model is in training mode
+            state_tensor = state.clone().to(device).unsqueeze(0).unsqueeze(0)
+            action_tensor = torch.FloatTensor(action).to(device).unsqueeze(0)
+            prediction = model(state_tensor, action_tensor)
             
             # Calculate loss comparing prediction to actual next state
-            loss = custom_loss(prediction.squeeze(), next_state.to(device))
+            next_state_tensor = next_state.clone().to(device)
+            loss = custom_loss(prediction.squeeze(), next_state_tensor)
+            
+            # Backward pass and optimize
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            
+            # Render model prediction - after training step
+            pred_array = prediction.detach().squeeze().cpu().numpy()
+            model_screen.fill((128, 128, 128))
+            
+            for i in range(32):
+                for j in range(32):
+                    val = pred_array[i, j]
+                    if val <= -0.8:  # Snake body
+                        color = (0, 0, 0)
+                    elif val >= 0.8:  # Food
+                        color = (255, 255, 255)
+                    elif val < 0:  # Trail
+                        gray_val = int(128 + val * 128)
+                        gray_val = max(0, min(255, gray_val))
+                        color = (gray_val, gray_val, gray_val)
+                    else:
+                        continue
+                    
+                    rect = pygame.Rect(j * 8, i * 8, 8, 8)
+                    pygame.draw.rect(model_screen, color, rect)
+            
+            pygame.display.flip()
             
             episode_loss += loss.item()
             
