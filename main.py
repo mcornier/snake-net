@@ -10,8 +10,8 @@ from interface import SnakeInterface
 def main():
     parser = argparse.ArgumentParser(description='Snake Neural Network Simulator')
     parser.add_argument('--mode', type=str, default='train',
-                        choices=['play', 'train', 'interactive', 'random', 'search'],
-                        help='Mode to run: play (human), train (train model), interactive (human + model), random/search (generate datasets)')
+                        choices=['play', 'train', 'train-rl', 'interactive', 'random', 'search'],
+                        help='Mode to run: play (human), train (train model), train-rl (train with RL), interactive (human + model), random/search (generate datasets)')
     parser.add_argument('--episodes', type=int, default=100, help='Number of episodes for training (default: 100)')
     parser.add_argument('--steps', type=int, default=500, help='Maximum steps per episode (default: 500)')
     parser.add_argument('--epochs', type=int, default=50, help='Number of training epochs (default: 50)')
@@ -55,7 +55,7 @@ def main():
             os.makedirs('datasets', exist_ok=True)
             torch.save(dataset, 'datasets/human_gameplay_final.pt')
         
-    elif args.mode == 'train':
+    elif args.mode == 'train' or args.mode == 'train-rl':
         print("Training mode activated")
         
         print("Loading existing datasets...")
@@ -88,7 +88,13 @@ def main():
             print("Starting with a new model...")
         
         print(f"Training model for {args.epochs} epochs...")
-        train(model, dataset, num_epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.lr, device=device)
+        if args.mode == 'train':
+            print(f"Training model with supervised learning for {args.epochs} epochs...")
+            train(model, dataset, num_epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.lr, device=device)
+        else:
+            print(f"Training model with reinforcement learning for {args.episodes} episodes...")
+            from train import train_rl
+            train_rl(model, num_episodes=args.episodes, max_steps=args.steps, learning_rate=args.lr, device=device)
         
     elif args.mode == 'interactive':
         print("Interactive mode activated")
